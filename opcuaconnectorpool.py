@@ -1,70 +1,72 @@
-import concurrent
+import asyncio
 import functools
+import json
 import logging
-
 import sys
-from asyncio import Task, futures, AbstractEventLoop
-from concurrent.futures.thread import ThreadPoolExecutor
+from asyncio import Task
+from asyncio.subprocess import Process
 from typing import Dict, List
 
-import asyncio
-
-from opcuaconnector import OPCUAConnector
+logging.basicConfig(level=logging.INFO)
+_logger = logging.getLogger('OpcUAConnectorPool_')
 
 
 class OPCUAConnectorPool(object):
 
-    MAX_WORKERS = 5
-
     def __init__(self, server_configs: list):
         self._server_configs = server_configs
-        self._pool: Dict[int, OPCUAConnector] = dict()
-        self._tasks: Dict[int, Task] = dict()
-        self._execpool: ThreadPoolExecutor = ThreadPoolExecutor(max_workers=self.MAX_WORKERS,
-                                                                thread_name_prefix="opcua_")
-        # self._loop.run_forever()
+        self._process_pools: Dict[int, Process] = dict()
 
     async def setup(self, server_configs=None):
         cnf = self._server_configs if server_configs is None else server_configs
-        for s in cnf:
-            loop = asyncio.get_running_loop()
-            # asyncio.create_subprocess_exec(sys.executable, )
+        for c in cnf:
+            asyncio.create_task(self.add_connector([c]))
 
-            self._execpool.submit(
-                lambda x: asyncio.create_task(self.add_connector(s['url'], s['node_ids'], s['uid']))
-            )
+    async def add_connector(self, server_configs=None):
+        assert len(server_configs) == 1
+        config = json.dumps(server_configs)
+        _logger.info(config)
+        uid = server_configs[0]['uid']
+        task = asyncio.create_task(asyncio.create_subprocess_exec(sys.executable,
+                                                                  '/Users/pranav/workspace/opcua_toy/opcuaconnector.py',
+                                                                  config))
+        task.add_done_callback(functools.partial(self.task_created, task, uid))
 
-    async def add_connector(self, url, node_ids, uid):
-        connector = OPCUAConnector(url, node_ids, uid)
-        if await connector.connect():
-            t = asyncio.create_task(connector.subscribe())
-            self._tasks[connector.uid] = t
-            self._pool[connector.uid] = connector
-            logging.info("Added Connector with ID: %d to pool" % connector.uid)
-            return connector.uid
-        else:
-            logging.error("Unable to connect. Quitting.")
+    def task_created(self, task: Task, uid: int, x):
+        proc = task.result()
+        _logger.info("%s Created for connector ID %d" % (proc, uid))
+        self._process_pools[uid] = proc
 
     async def remove_connectors(self, uids: List[int]) -> None:
-        [asyncio.create_task(self.remove_connector(x)) for x in uids]
-
-    async def remove_connector(self, uid) -> None:
-        c: OPCUAConnector = self._pool.get(uid)
-        if c:
-            task = asyncio.create_task(c.disconnect())
-            task.add_done_callback(functools.partial(self._remove_from_pool, uid))
-        else:
-            logging.warning(self._pool.keys())
-
-    def _remove_from_pool(self, uid, _):
-        self._pool.pop(uid)
-        asyncio.gather(self._tasks.pop(uid))
-        logging.info("Removed %d from Pool" % uid)
+        _logger.info("Shutting down processes for Connector IDs %s" % ','.join(map(str, uids)))
+        [self._process_pools.pop(x).kill() for x in uids]
 
     async def shutdown(self):
         logging.info("Starting Shutdown of OPCUAConnectorPool.")
-        print(self._pool.keys())
-        for uid, connector in self._pool.items():
-            t: Task = asyncio.create_task(connector.disconnect())
-            t.add_done_callback(functools.partial(self._remove_from_pool, uid))
+        await self.remove_connectors(list(self._process_pools.keys()))
 
+
+async def main(server_configs):
+    pool = OPCUAConnectorPool(server_configs)
+    asyncio.create_task(pool.setup(server_configs))
+
+
+if __name__ == '__main__':
+    server_configs = [
+        {"url": "opc.tcp://Pranavs-MacBook-Pro-2.local:53530/OPCUA/SimulationServer",
+         "node_ids": ["ns=3;i=1001", "ns=3;i=1011"],
+         "uid": 1
+         },
+        {"url": "opc.tcp://Pranavs-MacBook-Pro-2.local:53530/OPCUA/SimulationServer",
+         "node_ids": ["ns=3;i=1022", "ns=3;i=1004"],
+         "uid": 2
+         }
+    ]
+    loop = asyncio.get_event_loop()
+    try:
+        main_task = loop.create_task(main(server_configs))
+        loop.run_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        loop.close()

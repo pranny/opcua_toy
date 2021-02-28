@@ -1,18 +1,13 @@
-import functools
-import logging
-import pathlib
-import shutil
-import signal
-import uuid
-import os
-
 import asyncio
-from asyncio import Task
-from opcuasubscriptionhandler import OPCUASubHandler
+import json
+import logging
+import signal
+from sys import argv
 
 from asyncua import Client, ua, Node
-from asyncua.common.subscription import Subscription, SubHandler
-from asyncua.ua.uaprotocol_auto import DataChangeNotification
+from asyncua.common.subscription import Subscription
+
+from opcuasubscriptionhandler import OPCUASubHandler
 
 logging.basicConfig(level=logging.INFO)
 _logger = logging.getLogger('OpcUAConnector_')
@@ -77,7 +72,7 @@ class OPCUAConnector(object):
     async def subscribe(self):
         await self._subscribe()
         try:
-            while True:
+            while self._continue_forever:
                 await asyncio.sleep(0)
         except asyncio.CancelledError as e:
             _logger.info("Task Cancelled")
@@ -110,14 +105,18 @@ async def main(server_configs):
 
 
 if __name__ == '__main__':
-    server_configs = [
-        {"url": "opc.tcp://Pranavs-MacBook-Pro-2.local:53530/OPCUA/SimulationServer",
-         "node_ids": ["ns=3;i=1001", "ns=3;i=1011"],
-         "uid": 1
-         }
-    ]
+    if len(argv) == 2:
+        server_configs = json.loads(argv[1])
+    else:
+        _logger.info("Unable to find System parameters. Using example")
+        server_configs = [
+            {"url": "opc.tcp://Pranavs-MacBook-Pro-2.local:53530/OPCUA/SimulationServer",
+             "node_ids": ["ns=3;i=1001", "ns=3;i=1011"],
+             "uid": 1
+             }
+        ]
     _logger.info("Starting")
-    asyncio.run(main(server_configs))
-
-
-
+    try:
+        asyncio.run(main(server_configs))
+    except KeyboardInterrupt:
+        pass

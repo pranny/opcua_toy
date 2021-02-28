@@ -1,8 +1,12 @@
 import asyncio
+import logging
 
 from aiohttp import web
 
 from opcuaconnectorpool import OPCUAConnectorPool
+
+logging.basicConfig(level=logging.INFO)
+_logger = logging.getLogger('APIHandler_')
 
 
 class APIHandler(object):

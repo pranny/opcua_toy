@@ -34,12 +34,14 @@ class OPCUASubHandler(object):
 
     async def persist_datachange(self, node, val, data: DataChangeNotification):
         fileid = uuid.uuid4()
-        filename = "./files/node_%s.csv" % fileid
-        with open(filename, 'a') as file:
-            file.write("node,server_ts,source_ts,val\n")
-            v = data.monitored_item.Value
-            # print(dir(v))
-            file.write("%s,%s,%s,%s" % (node, v.ServerTimestamp, v.SourceTimestamp, val))
+        v = data.monitored_item.Value
+        print(node, val, v.SourceTimestamp, v.ServerTimestamp)
+        # filename = "/Users/pranav/workspace/opcua_toy/files/node_%s.csv" % fileid
+        # with open(filename, 'w') as file:
+        #     file.write("node,server_ts,source_ts,val\n")
+        #
+        #     # print(dir(v))
+        #     file.write("%s,%s,%s,%s" % (node, v.ServerTimestamp, v.SourceTimestamp, val))
 
     def persisted_callback(self, t):
         pass
